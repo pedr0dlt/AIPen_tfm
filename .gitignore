@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment variables (contiene claves y configuración sensible)
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# Docker
+*.log
+
+# Datos generados en ejecución
+data/logs/*
+data/reports/*
+!data/logs/.gitkeep
+!data/reports/.gitkeep

@@ -1,0 +1,39 @@
+version: '3.8'
+
+networks:
+  backend:
+    # orchestrator <-> ollama <-> executor
+  lab:
+    # executor <-> metasploitable
+    internal: true
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: tfm_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - backend
+    restart: unless-stopped
+    # Ordenador personal
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  metasploitable:
+    image: tleemcjr/metasploitable2:latest
+    container_name: tfm_metasploitable
+    hostname: metasploitable
+    networks:
+      - lab
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

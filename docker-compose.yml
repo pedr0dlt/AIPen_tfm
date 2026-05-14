@@ -42,6 +42,26 @@ services:
       - lab       # Lanza ataques contra metasploitable
     restart: unless-stopped
 
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    container_name: tfm_orchestrator
+    depends_on:
+      - ollama
+      - executor
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - EXECUTOR_HOST=http://executor:8000
+    env_file:
+      - .env
+    volumes:
+      - ./orchestrator:/app
+      - ./data/logs:/logs
+    networks:
+      - backend   # Solo habla con ollama y executor, nunca con el objetivo directamente
+    restart: unless-stopped
+
   metasploitable:
     image: tleemcjr/metasploitable2:latest
     container_name: tfm_metasploitable

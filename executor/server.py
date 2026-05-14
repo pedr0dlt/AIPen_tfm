@@ -1,8 +1,21 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+import os
+import socket
 import subprocess
 
 app = FastAPI(title="Pentest Executor API")
+
+#Devuelve la IP local del executor
+def _lhost_for_target(target: str) -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((target, 1))   
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return ""
 
 class CommandRequest(BaseModel):
     command: str
@@ -17,7 +30,7 @@ class CommandResponse(BaseModel):
 @app.post("/execute", response_model=CommandResponse)
 def execute_command(request: CommandRequest):
     try:
-        # API solo está expuesta para el Orchestrator.
+        # API expuesta para el Orchestrator.
         result = subprocess.run(
             request.command, 
             shell=True, 
@@ -39,3 +52,16 @@ def execute_command(request: CommandRequest):
 @app.get("/health")
 def health_check():
     return {"status": "ok", "message": "Executor is ready and waiting for commands"}
+
+# Devuelve la IP del executor
+@app.get("/lhost")
+def lhost(target: str = ""):
+    if not target:
+        target = os.getenv("LAB_TARGET", "metasploitable")
+    ip = _lhost_for_target(target)
+    if not ip:
+        raise HTTPException(
+            status_code=503,
+            detail=f"No se pudo resolver la IP local del executor hacia '{target}'."
+        )
+    return {"target": target, "lhost": ip}

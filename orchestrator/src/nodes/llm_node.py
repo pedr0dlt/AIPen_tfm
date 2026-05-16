@@ -6,19 +6,13 @@ from src.state import PentestState
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.getenv("MODEL_NAME", "llama3")
 
-# Timeout para cada llamada 
+# Parámetros
 _LLM_TIMEOUT = 480
-
-# Tope de tokens generados
 _MAX_OUTPUT_TOKENS = 180
-
-# Tiempo que sigue vivo
 _KEEP_ALIVE = "30m"
-
-# Número máximo de mensajes
 _MAX_HISTORY_MESSAGES = 8
 
-# Calentamiento para que se cargue
+# Calentamiento
 def prewarm_ollama() -> None:
     print(f"[*] Pre-cargando modelo '{MODEL_NAME}' en Ollama")
     t0 = time.monotonic()
@@ -46,7 +40,7 @@ def _prune_history(messages: list[dict]) -> list[dict]:
         return messages
     return messages[-_MAX_HISTORY_MESSAGES:]
 
-# Nodo LLM, conecta con Ollama
+# Nodo LLM
 def llm_node(state: PentestState):
     print("\n--- [Nodo LLM] Pensando el siguiente paso... ---")
 

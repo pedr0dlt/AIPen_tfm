@@ -57,9 +57,11 @@ services:
       - .env
     volumes:
       - ./orchestrator:/app
+      - ./data:/data         
       - ./data/logs:/logs
     networks:
       - backend   # Solo habla con ollama y executor, nunca con el objetivo directamente
+    command: tail -f /dev/null
     restart: unless-stopped
 
   metasploitable:

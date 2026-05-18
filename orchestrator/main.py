@@ -82,15 +82,28 @@ def main():
     except Exception as e:
         print(f"\n[!] Ejecución interrumpida: {e}")
 
-    print("\n[+] Ciclo completado.")
-    print("============================================================")
-    print(f"  Objetivo            : {final_state.get('target_ip')}")
-    print(f"  Fase final          : {final_state.get('current_phase')}")
-    print(f"  OS detectado        : {final_state.get('os_type')}")
-    ports = final_state.get('discovered_ports', []) or []
-    print(f"  Puertos abiertos    : {len(ports)} → {ports}")
-    print(f"  Comandos ejecutados : {final_state.get('commands_in_phase', 0)}")
-    print("============================================================")
+    print("\n+============================================================+")
+    print("|                    RESUMEN FINAL                           |")
+    print("+============================================================+")
+    print(f"| Objetivo         : {str(final_state.get('target_ip', '?')):<40} |")
+    print(f"| OS detectado     : {str(final_state.get('os_type', '?')):<40} |")
+    print(f"| Fase alcanzada   : {str(final_state.get('current_phase', '?')):<40} |")
+    ports = final_state.get("discovered_ports", []) or []
+    print(f"| Puertos abiertos : {len(ports):<40} |")
+    if ports:
+        ports_str = ", ".join(str(p) for p in ports[:20])
+        if len(ports) > 20:
+            ports_str += ", ..."
+        print(f"|    {ports_str}")
+    creds = final_state.get("acquired_credentials", []) or []
+    print(f"| Credenciales     : {len(creds):<40} |")
+    for c in creds[:10]:
+        c_short = c if len(c) <= 56 else c[:53] + "..."
+        print(f"|    - {c_short}")
+    if len(creds) > 10:
+        print(f"|    - ... y {len(creds) - 10} más")
+    print(f"| ¿Comprometido?   : {str(final_state.get('is_compromised', False)):<40} |")
+    print("+============================================================+")
 
 
 if __name__ == "__main__":

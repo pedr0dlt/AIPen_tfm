@@ -3,21 +3,24 @@ from src.state import PentestState
 from src.nodes.llm_node import llm_node
 from src.nodes.parser_node import parser_node
 from src.nodes.tool_node import tool_node
+from src.nodes.phase_node import phase_transition_node
 
 MAX_FORMAT_RETRIES = 3
 
 
 def route_next_step(state: PentestState):
-    """Arista condicional tras el parser."""
     args = state.get("next_tool_args", "")
     next_tool = state.get("next_tool")
+    current_phase = state.get("current_phase", "recon")
+
+    if current_phase == "done":
+        return END
 
     if args.upper() == "FIN":
-        return END
+        return "phase_transition"
 
     if next_tool == "executor":
         return "tool"
-
     if next_tool == "retry":
         return "llm"
 
@@ -28,9 +31,30 @@ def route_next_step(state: PentestState):
 
     return "enforce_format"
 
+# Avance si en recon hay puertos o si en exploitation hay compromised
+def route_after_tool(state: PentestState):
+    phase = state.get("current_phase", "recon")
+    ports = state.get("discovered_ports", []) or []
+
+    if phase == "recon" and len(ports) > 0:
+        print(f"\n[*] Auto-avance: {len(ports)} puertos detectados → EXPLOTACIÓN")
+        return "phase_transition"
+
+    if phase == "exploitation" and state.get("is_compromised", False):
+        print("\n[*] Auto-avance: is_compromised=True → POST-EXPLOTACIÓN")
+        return "phase_transition"
+
+    return "llm"
+
+
+def route_after_phase(state: PentestState):
+    if state.get("current_phase") == "done":
+        print("[*] Flujo terminado: no se llama más al LLM.\n")
+        return END
+    return "llm"
+
 
 def check_parser_fails(state: PentestState):
-    """Nodo de contingencia para JSON inválido."""
     retries = state.get("format_retries", 0) + 1
     print(f"--- [Nodo Contingencia] Forzando formato JSON (intento {retries}/{MAX_FORMAT_RETRIES}) ---")
     return {
@@ -62,6 +86,7 @@ def build_graph():
     workflow.add_node("enforce_format", check_parser_fails)
     workflow.add_node("tool", tool_node)
     workflow.add_node("reset_retries", reset_retries)
+    workflow.add_node("phase_transition", phase_transition_node)
 
     workflow.set_entry_point("llm")
 
@@ -72,14 +97,33 @@ def build_graph():
         route_next_step,
         {
             "tool": "reset_retries",
-            "llm": "llm",                   # F1 — ruta "retry"
+            "llm": "llm",
+            "phase_transition": "phase_transition",
             "enforce_format": "enforce_format",
             END: END,
         }
     )
 
     workflow.add_edge("reset_retries", "tool")
-    workflow.add_edge("tool", "llm")
+
+    workflow.add_conditional_edges(
+        "tool",
+        route_after_tool,
+        {
+            "llm": "llm",
+            "phase_transition": "phase_transition",
+        }
+    )
+
+    workflow.add_conditional_edges(
+        "phase_transition",
+        route_after_phase,
+        {
+            "llm": "llm",
+            END: END,
+        }
+    )
+
     workflow.add_edge("enforce_format", "llm")
 
     return workflow.compile()

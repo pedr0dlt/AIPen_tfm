@@ -12,7 +12,9 @@ class PentestState(TypedDict):
     lhost: str
 
     is_compromised: bool
-    acquired_credentials: List[str]
+
+    # devuelve solo las creds nuevas
+    acquired_credentials: Annotated[List[str], operator.add]
 
     last_command_output: str
 

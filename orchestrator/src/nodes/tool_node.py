@@ -102,6 +102,72 @@ def _extract_ports(output: str) -> list[int]:
     return ports
 
 
+# Detectores de compromiso y extracción de credenciales, si cualquiera de estos  aparece -> is_compromised=True
+_COMPROMISE_PATTERNS = (
+    r"meterpreter\s*>",
+    r"command shell session\s+\d+\s+opened",
+    r"session\s+\d+\s+opened",
+    r"\buid=\d+\([^)]+\)",
+    r"shell session\s+\d+\s+opened",
+    r"meterpreter session\s+\d+\s+opened",
+)
+
+# /etc/passwd
+_PASSWD_LINE_RE = re.compile(
+    r"^([a-zA-Z0-9_.\-]{1,32}):x?:(\d+):(\d+):[^:]*:[^:]*:.+$",
+    re.MULTILINE,
+)
+
+# /etc/shadow
+_SHADOW_HASH_RE = re.compile(
+    r"^([a-zA-Z0-9_.\-]{1,32}):(\$[16y5][a-z]?\$[^:\s]+):",
+    re.MULTILINE,
+)
+
+# NTLM 
+_NTLM_HASH_RE = re.compile(
+    r"^([a-zA-Z0-9_.\-]{1,32}):\d+:([a-f0-9]{32}):([a-f0-9]{32}):::",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+# True si hay shell remota
+def _detect_compromise(output: str) -> bool:
+    for pat in _COMPROMISE_PATTERNS:
+        if re.search(pat, output, re.IGNORECASE):
+            return True
+    return False
+
+
+def _extract_credentials(output: str) -> list[str]:
+    found: list[str] = []
+
+    for m in _PASSWD_LINE_RE.finditer(output):
+        user, uid, gid = m.group(1), m.group(2), m.group(3)
+        try:
+            uid_int = int(uid)
+        except ValueError:
+            continue
+        if user == "root" or uid_int >= 1000 or uid_int == 0:
+            found.append(f"passwd: {user} (uid={uid}, gid={gid})")
+
+    for m in _SHADOW_HASH_RE.finditer(output):
+        user, h = m.group(1), m.group(2)
+        h_short = h if len(h) <= 50 else h[:47] + "..."
+        found.append(f"shadow: {user}:{h_short}")
+
+    for m in _NTLM_HASH_RE.finditer(output):
+        user, _lm, ntlm = m.group(1), m.group(2), m.group(3)
+        found.append(f"ntlm: {user}:{ntlm}")
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for f in found:
+        if f not in seen:
+            seen.add(f)
+            unique.append(f)
+    return unique
+
+
 # Nodo principal
 def tool_node(state: PentestState):
     comando = state.get("next_tool_args", "")
@@ -139,6 +205,22 @@ def tool_node(state: PentestState):
     if len(output_for_llm) < len(output):
         print(f"[*] Output truncado para el LLM: {len(output)} → {len(output_for_llm)} chars")
 
+    compromised_now = _detect_compromise(output)
+    new_creds = _extract_credentials(output)
+
+    if new_creds:
+        by_type: dict[str, list[str]] = {}
+        for c in new_creds:
+            prefix = c.split(":", 1)[0] if ":" in c else "otro"
+            by_type.setdefault(prefix, []).append(c)
+        types_summary = ", ".join(f"{t}={len(items)}" for t, items in by_type.items())
+        print(f"[+] Credenciales extraídas: {len(new_creds)}  ({types_summary})")
+        for tname, items in by_type.items():
+            for c in items[:2]:
+                print(f"    · {c}")
+            if len(items) > 2:
+                print(f"    · ... y {len(items) - 2} más de tipo '{tname}'")
+
     updates = {
         "last_command_output": output,
         "messages": [{
@@ -156,5 +238,15 @@ def tool_node(state: PentestState):
         if detected:
             print(f"[*] OS detectado: {detected.upper()}")
             updates["os_type"] = detected
+
+    if compromised_now and not state.get("is_compromised", False):
+        print("[+] ¡Sistema COMPROMETIDO! (detectado en output)")
+        updates["is_compromised"] = True
+
+    if new_creds:
+        existing = set(state.get("acquired_credentials", []) or [])
+        truly_new = [c for c in new_creds if c not in existing]
+        if truly_new:
+            updates["acquired_credentials"] = truly_new
 
     return updates

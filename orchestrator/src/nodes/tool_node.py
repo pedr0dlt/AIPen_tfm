@@ -185,6 +185,55 @@ def tool_node(state: PentestState):
         comando = f'msfconsole -q -x "{stripped}"'
         print(f"[~] Auto-wrap: comando 'sessions ...' envuelto en msfconsole -q -x")
 
+    # B1 — Anti-duplicado por fase: si el LLM repite EXACTAMENTE un comando
+    # ya ejecutado en esta fase (post-auto-wrap), NO lo volvemos a lanzar.
+    # Devolvemos feedback sintético que fuerza al LLM a probar otra cosa
+    # o a decir FIN. `executed_commands` se resetea en cada transición de fase.
+    cmd_norm = " ".join(comando.strip().lower().split())
+    executed = state.get("executed_commands", []) or []
+    if cmd_norm in executed:
+        synthetic = (
+            f"[BLOQUEADO POR EL AGENTE] El comando «{comando[:120]}» ya se "
+            f"ejecutó en esta fase y produjo el mismo resultado. NO repitas. "
+            f"Prueba otra acción DIFERENTE — ejemplos meterpreter: hashdump, "
+            f"sysinfo, ls /home, arp, ifconfig, cat /etc/shadow, getuid. "
+            f'Si ya no queda nada útil que extraer, responde {{"action":"FIN"}}.'
+        )
+        print(f"[!] Comando duplicado bloqueado: {comando[:80]}...")
+        return {
+            "last_command_output": synthetic,
+            "messages": [{"role": "user", "content": synthetic}],
+            "next_tool": "",
+            "next_tool_args": "",
+        }
+
+    # F4 — Guard de fase: en post-explotación está PROHIBIDO re-explotar.
+    # El LLM tiende a volver a tirar `use exploit/...` en lugar de usar la
+    # sesión ya abierta. Esta guard es del mismo tipo que B1 (anti-dup) y
+    # F-V1 (validador msf): protege contra una clase de error específico.
+    phase = state.get("current_phase", "")
+    if phase == "post-exploitation" and "use exploit/" in comando.lower():
+        last_sid = state.get("last_session_id", 0) or 1
+        synthetic = (
+            f"[BLOQUEADO POR EL AGENTE] En POST-EXPLOTACIÓN está prohibido "
+            f"`use exploit/...`. La sesión id={last_sid} ya está activa en "
+            f"msfrpcd; debes trabajar SOBRE ella, no re-explotar.\n"
+            f"Emite algo así:\n"
+            f'{{"action":"shell","command":"sessions -i {last_sid} -c '
+            f"'hashdump'\"}}\n"
+            f"Comandos meterpreter útiles: getuid, sysinfo, hashdump, "
+            f"cat /etc/shadow, ls /home, arp, ifconfig.\n"
+            f'Cuando hayas extraído lo posible, responde {{"action":"FIN"}}.'
+        )
+        print(f"[!] Bloqueado intento de re-exploit en post-exploitation: "
+              f"{comando[:80]}...")
+        return {
+            "last_command_output": synthetic,
+            "messages": [{"role": "user", "content": synthetic}],
+            "next_tool": "",
+            "next_tool_args": "",
+        }
+
     print(f"--- [Nodo Tool] Ejecutando remotamente: {comando[:140]}{'...' if len(comando) > 140 else ''} ---")
 
     rpc_output = None
@@ -248,6 +297,10 @@ def tool_node(state: PentestState):
             if len(items) > 2:
                 print(f"    · ... y {len(items) - 2} más de tipo '{tname}'")
 
+    # B1 — añadir el comando ejecutado al registro de la fase para detectar
+    # repeticiones futuras. `executed_commands` se resetea en cada transición.
+    new_executed = list(executed) + [cmd_norm]
+
     updates = {
         "last_command_output": output,
         "messages": [{
@@ -258,6 +311,7 @@ def tool_node(state: PentestState):
         "next_tool_args": "",
         "commands_in_phase": state.get("commands_in_phase", 0) + 1,
         "discovered_ports": updated_ports,
+        "executed_commands": new_executed,
     }
 
     if state.get("os_type", "unknown") == "unknown":

@@ -34,12 +34,17 @@ services:
     container_name: tfm_executor
     ports:
       - "8000:8000"
+    environment:
+      # Credenciales del msfrpcd
+      - MSF_RPC_USER=msf
+      - MSF_RPC_PASS=msf123
+      - MSF_RPC_PORT=55553
     volumes:
       - ./data/reports:/reports
       - ./executor/playbooks:/playbooks
     networks:
-      - backend   # Recibe órdenes del orchestrator
-      - lab       # Lanza ataques contra metasploitable
+      - backend
+      - lab   
     restart: unless-stopped
 
   orchestrator:
@@ -53,6 +58,10 @@ services:
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - EXECUTOR_HOST=http://executor:8000
+      - MSF_RPC_HOST=executor
+      - MSF_RPC_PORT=55553
+      - MSF_RPC_USER=msf
+      - MSF_RPC_PASS=msf123
     env_file:
       - .env
     volumes:
@@ -61,7 +70,8 @@ services:
       - ./data/logs:/logs
     networks:
       - backend   # Solo habla con ollama y executor, nunca con el objetivo directamente
-    command: tail -f /dev/null
+    command: >
+      sh -c "python -m src.rag.build_index --if-needed; tail -f /dev/null"
     restart: unless-stopped
 
   metasploitable:

@@ -5,6 +5,7 @@ import re
 from datetime import datetime
 import requests
 from src.state import PentestState
+from src.msf_client import execute_via_console as msf_execute_via_console
 
 EXECUTOR_HOST = os.getenv("EXECUTOR_HOST", "http://localhost:8000")
 
@@ -102,14 +103,16 @@ def _extract_ports(output: str) -> list[int]:
     return ports
 
 
-# Detectores de compromiso y extracción de credenciales, si cualquiera de estos  aparece -> is_compromised=True
 _COMPROMISE_PATTERNS = (
     r"meterpreter\s*>",
-    r"command shell session\s+\d+\s+opened",
-    r"session\s+\d+\s+opened",
-    r"\buid=\d+\([^)]+\)",
-    r"shell session\s+\d+\s+opened",
     r"meterpreter session\s+\d+\s+opened",
+    r"command shell session\s+\d+\s+opened",
+    r"shell session\s+\d+\s+opened",
+    r"session\s+\d+\s+opened",
+    r"\buid=\d+",                     
+    r"server username:\s*\S",         
+    r"backdoor has been spawned",
+    r"successfully created.*session",
 )
 
 # /etc/passwd
@@ -175,21 +178,37 @@ def tool_node(state: PentestState):
     if not comando or comando.upper() == "FIN":
         return {"last_command_output": "Ejecución finalizada por el agente."}
 
+    stripped = comando.lstrip()
+    if stripped.lower().startswith("sessions "):
+        if not stripped.rstrip().endswith("exit -y"):
+            stripped = stripped.rstrip().rstrip(";") + "; exit -y"
+        comando = f'msfconsole -q -x "{stripped}"'
+        print(f"[~] Auto-wrap: comando 'sessions ...' envuelto en msfconsole -q -x")
+
     print(f"--- [Nodo Tool] Ejecutando remotamente: {comando[:140]}{'...' if len(comando) > 140 else ''} ---")
 
-    try:
-        response = requests.post(
-            f"{EXECUTOR_HOST}/execute",
-            json={"command": comando, "timeout": 300},
-            timeout=310
-        )
-        response.raise_for_status()
-        result = response.json()
-        output = f"[STDOUT]\n{result['stdout']}\n[STDERR]\n{result['stderr']}"
-        print(f"[*] Salida recibida ({len(output)} caracteres)")
-    except Exception as e:
-        output = f"Error al intentar ejecutar la herramienta en Kali: {str(e)}"
-        print(f"[-] {output}")
+    rpc_output = None
+    if "msfconsole" in comando.lower():
+        rpc_output = msf_execute_via_console(comando, total_timeout=180)
+        if rpc_output is not None:
+            print(f"[*] Ejecutado vía msfrpcd (console persistente, {len(rpc_output)} chars)")
+
+    if rpc_output is not None:
+        output = f"[STDOUT]\n{rpc_output}\n[STDERR]\n"
+    else:
+        try:
+            response = requests.post(
+                f"{EXECUTOR_HOST}/execute",
+                json={"command": comando, "timeout": 300},
+                timeout=310
+            )
+            response.raise_for_status()
+            result = response.json()
+            output = f"[STDOUT]\n{result['stdout']}\n[STDERR]\n{result['stderr']}"
+            print(f"[*] Salida recibida ({len(output)} caracteres)")
+        except Exception as e:
+            output = f"Error al intentar ejecutar la herramienta en Kali: {str(e)}"
+            print(f"[-] {output}")
 
     _dump_exploit_output(comando, output)
 
@@ -207,6 +226,14 @@ def tool_node(state: PentestState):
 
     compromised_now = _detect_compromise(output)
     new_creds = _extract_credentials(output)
+
+    if not compromised_now and new_creds:
+        has_proof_of_rce = any(
+            c.startswith(("shadow:", "ntlm:")) for c in new_creds
+        )
+        if has_proof_of_rce:
+            compromised_now = True
+            print("[+] Compromiso inferido por hashes shadow/ntlm extraídos")
 
     if new_creds:
         by_type: dict[str, list[str]] = {}

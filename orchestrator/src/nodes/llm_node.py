@@ -3,6 +3,7 @@ import time
 import requests
 from src.state import PentestState
 from src.catalog import applicable_entries, format_for_prompt
+from src.nodes.knowledge_node import load_playbook
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5:3b")
@@ -73,6 +74,12 @@ def llm_node(state: PentestState):
     exploit_table = format_for_prompt(entries)
     if entries and phase == "exploitation":
         print(f"[*] Catálogo aplicable: {len(entries)} entradas → {[e['id'] for e in entries]}")
+    playbook_context = load_playbook(
+        phase=phase,
+        os_type=state.get("os_type", "unknown"),
+        open_ports=state.get("discovered_ports", []),
+        last_output=state.get("last_command_output", ""),
+    )
 
     # Variables usadas
     fmt_vars = {
@@ -84,6 +91,8 @@ def llm_node(state: PentestState):
         "is_compromised": state.get("is_compromised", False),
         "n_credentials": len(state.get("acquired_credentials", []) or []),
         "executed_commands": state.get("executed_commands", []) or [],
+        "last_session_id": state.get("last_session_id", 0) or 0,
+        "playbook_context": playbook_context,
     }
     system_prompt = system_prompt_tpl.format(**fmt_vars)
 

@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 dist/
 build/
+orchestrator/src/rag/__init__.py
 
 # Virtual environments
 venv/

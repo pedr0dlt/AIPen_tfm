@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from src.state import PentestState
+from src.msf_client import latest_session_info
 
 
 # Orden de las fases
@@ -52,8 +53,21 @@ def phase_transition_node(state: PentestState):
     _print_phase_summary(current, state)
     print(f"=== [Director] {current.upper()}  →  {new_phase.upper()} ===\n")
 
+    last_session_id = state.get("last_session_id", 0) or 0
+    if new_phase == "post-exploitation":
+        sess = latest_session_info()
+        if sess:
+            last_session_id = sess["id"]
+            print(f"[*] Sesión activa detectada en msfrpcd: "
+                  f"id={sess['id']}, tipo={sess['type']}, via={sess['via_exploit']}\n")
+        else:
+            print("[!] No hay sesiones activas en msfrpcd. Post-exploitation "
+                  "trabajará en modo degradado (sin sesión persistente).\n")
+            last_session_id = 0
+
     return {
         "current_phase": new_phase,
+        "last_session_id": last_session_id,
         "commands_in_phase": 0,
         "executed_commands": [],
         "next_tool": "",

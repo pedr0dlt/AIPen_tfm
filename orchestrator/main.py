@@ -70,6 +70,7 @@ def main():
         "format_retries": 0,
         "commands_in_phase": 0,
         "executed_commands": [],
+        "last_session_id": 0,
     }
 
     agent = build_graph()

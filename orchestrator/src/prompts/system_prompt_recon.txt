@@ -18,3 +18,5 @@ R4. NO repitas nmap si ya hay puertos en el contexto.
 CONTEXTO:
 - discovered_ports: {discovered_ports}
 - os_type: {os_type}
+
+{playbook_context}

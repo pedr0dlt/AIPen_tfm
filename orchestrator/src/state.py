@@ -26,3 +26,5 @@ class PentestState(TypedDict):
     commands_in_phase: int
 
     executed_commands: List[str]
+
+    last_session_id: int

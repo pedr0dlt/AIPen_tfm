@@ -21,7 +21,16 @@ def route_next_step(state: PentestState):
 
     if next_tool == "executor":
         return "tool"
+
+    # Retry semántico (acción inválida, exploit_id desconocido, etc.).
+    # El parser ya incrementó format_retries. Si se acumulan demasiados sin
+    # un tool exitoso de por medio (que los resetearía), abortamos para
+    # evitar bucles tipo "{'action':'hashdump'}" repetido.
     if next_tool == "retry":
+        retries = state.get("format_retries", 0)
+        if retries >= MAX_FORMAT_RETRIES:
+            print(f"[!] Límite de {MAX_FORMAT_RETRIES} retries semánticos alcanzado. Abortando.")
+            return END
         return "llm"
 
     retries = state.get("format_retries", 0)

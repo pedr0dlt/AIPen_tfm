@@ -57,6 +57,9 @@ def parser_node(state: PentestState):
             return {
                 "next_tool": "retry",
                 "next_tool_args": "",
+                # Cuenta como format_retry para evitar bucles infinitos de errores
+                # semánticos. Se resetea en reset_retries (antes de cada tool).
+                "format_retries": state.get("format_retries", 0) + 1,
                 "messages": [{
                     "role": "user",
                     "content": (
@@ -84,6 +87,7 @@ def parser_node(state: PentestState):
             return {
                 "next_tool": "retry",
                 "next_tool_args": "",
+                "format_retries": state.get("format_retries", 0) + 1,
                 "messages": [{
                     "role": "user",
                     "content": (
@@ -109,6 +113,7 @@ def parser_node(state: PentestState):
     return {
         "next_tool": "retry",
         "next_tool_args": "",
+        "format_retries": state.get("format_retries", 0) + 1,
         "messages": [{
             "role": "user",
             "content": (

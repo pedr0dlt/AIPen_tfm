@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from src.agent import build_graph
 from src.nodes.llm_node import prewarm_ollama
 from src.catalog import load_catalog
+from src.report import generate_report
 
 load_dotenv()
 
@@ -105,6 +106,14 @@ def main():
         print(f"|    - ... y {len(creds) - 10} más")
     print(f"| ¿Comprometido?   : {str(final_state.get('is_compromised', False)):<40} |")
     print("+============================================================+")
+
+    # F5 — Generar informe Markdown a partir del estado final
+    report_path = generate_report(final_state)
+    if report_path:
+        print(f"\n[+] Informe generado: {report_path}")
+    else:
+        print("\n[!] No se pudo generar el informe.")
+    print("\n[+] Fin de la ejecución.")
 
 
 if __name__ == "__main__":

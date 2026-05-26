@@ -74,12 +74,31 @@ def llm_node(state: PentestState):
     exploit_table = format_for_prompt(entries)
     if entries and phase == "exploitation":
         print(f"[*] Catálogo aplicable: {len(entries)} entradas → {[e['id'] for e in entries]}")
+    operator_hint = ""
+    for m in reversed(state.get("messages", []) or []):
+        if m.get("role") != "user":
+            continue
+        c = (m.get("content") or "").strip()
+        if not c:
+            continue
+        # ignoramos los marcadores sintéticos del propio orchestrator
+        if c.startswith("[SISTEMA]") or c.startswith("Comienza la auditoría"):
+            continue
+        operator_hint = c[:300]
+        break
+
     playbook_context = load_playbook(
         phase=phase,
         os_type=state.get("os_type", "unknown"),
         open_ports=state.get("discovered_ports", []),
         last_output=state.get("last_command_output", ""),
+        target_ip=state.get("target_ip", ""),
+        lhost=state.get("lhost", ""),
+        operator_hint=operator_hint,
     )
+
+    creds_list = state.get("acquired_credentials", []) or []
+    creds_block = "\n".join(f"  - {c}" for c in creds_list[:10]) or "  (ninguna)"
 
     # Variables usadas
     fmt_vars = {
@@ -88,6 +107,7 @@ def llm_node(state: PentestState):
         "discovered_ports": state["discovered_ports"],
         "os_type": state.get("os_type", "unknown"),
         "exploit_table": exploit_table,
+        "acquired_credentials": creds_block,
         "is_compromised": state.get("is_compromised", False),
         "n_credentials": len(state.get("acquired_credentials", []) or []),
         "executed_commands": state.get("executed_commands", []) or [],

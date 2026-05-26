@@ -1,19 +1,3 @@
-"""
-Generador del informe final del pentest — F5.
-
-Toma el estado final tras la ejecución del grafo LangGraph y emite un
-fichero Markdown en `/data/reports/<timestamp>_<target>.md` con:
-
-  - Resumen ejecutivo (target, OS, comprometido, creds, sesión)
-  - Reconocimiento (puertos abiertos)
-  - Explotación (sesión activa si la hay)
-  - Credenciales y hashes desglosados por tipo (passwd / shadow / ntlm)
-  - Punteros a los logs de cada intento msfconsole
-
-El informe queda como evidencia de ejecución del agente — pensado tanto
-para defensa académica como para entregar al cliente en un pentest real.
-"""
-
 from __future__ import annotations
 
 import os
@@ -26,15 +10,10 @@ _EXPLOIT_LOG_DIR = "/logs/exploit_attempts"
 
 
 def _safe(s: str | None) -> str:
-    """Sanitiza un string para Markdown: sin saltos de línea, sin trim."""
     return (s or "").replace("\n", " ").strip()
 
 
 def _bucket_credentials(creds: list[str]) -> dict[str, list[str]]:
-    """
-    Agrupa las credenciales por prefijo (passwd:, shadow:, ntlm:, ...).
-    Si la entrada no tiene prefijo conocido, va a 'otros'.
-    """
     out: dict[str, list[str]] = {}
     for c in creds:
         prefix = c.split(":", 1)[0] if ":" in c else "otros"
@@ -43,10 +22,6 @@ def _bucket_credentials(creds: list[str]) -> dict[str, list[str]]:
 
 
 def generate_report(state: dict[str, Any]) -> str:
-    """
-    Crea un informe Markdown a partir del estado final del agente.
-    Devuelve la ruta del fichero generado o string vacío si falla.
-    """
     target = _safe(state.get("target_ip")) or "unknown"
     safe_target = target.replace("/", "_").replace(":", "_")
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -69,7 +44,7 @@ def generate_report(state: dict[str, Any]) -> str:
 
     md: list[str] = []
 
-    # ============== Cabecera ==============
+    # Cabecera
     md.append(f"# Informe de pentest — `{target}`")
     md.append("")
     md.append(f"_Generado: **{ts} UTC** por el agente AIPen_")
@@ -77,7 +52,7 @@ def generate_report(state: dict[str, Any]) -> str:
     md.append("---")
     md.append("")
 
-    # ============== Resumen ejecutivo ==============
+    # Resumen ejecutivo
     md.append("## Resumen ejecutivo")
     md.append("")
     md.append("| Métrica | Valor |")
@@ -85,7 +60,7 @@ def generate_report(state: dict[str, Any]) -> str:
     md.append(f"| Objetivo | `{target}` |")
     md.append(f"| OS detectado | `{os_type}` |")
     md.append(f"| Fase alcanzada | `{phase}` |")
-    md.append(f"| ¿Sistema comprometido? | {'✅ **SÍ**' if compromised else '❌ no'} |")
+    md.append(f"| ¿Sistema comprometido? | {' **SÍ**' if compromised else '❌ no'} |")
     md.append(f"| Puertos abiertos | **{len(ports)}** |")
     md.append(f"| Credenciales/usuarios obtenidos | **{len(creds)}** |")
     if last_session_id:
@@ -94,7 +69,7 @@ def generate_report(state: dict[str, Any]) -> str:
         md.append(f"| LHOST (executor en red lab) | `{lhost}` |")
     md.append("")
 
-    # ============== Reconocimiento ==============
+    # Reconocimiento
     md.append("## Reconocimiento")
     md.append("")
     if ports:
@@ -107,7 +82,7 @@ def generate_report(state: dict[str, Any]) -> str:
         md.append("_No se detectaron puertos abiertos._")
     md.append("")
 
-    # ============== Explotación ==============
+    # Explotación
     md.append("## Explotación")
     md.append("")
     if compromised:
@@ -123,7 +98,7 @@ def generate_report(state: dict[str, Any]) -> str:
         md.append("Revisa los logs en `data/logs/exploit_attempts/` para ver qué falló.")
     md.append("")
 
-    # ============== Credenciales (desglose por tipo) ==============
+    # Credenciales
     md.append("## Credenciales y usuarios descubiertos")
     md.append("")
     if creds:
@@ -152,12 +127,12 @@ def generate_report(state: dict[str, Any]) -> str:
 
         # Notas accionables sobre los hashes
         if "shadow" in buckets:
-            md.append("> 💡 Los hashes `shadow` se pueden crackear con "
+            md.append(">  Los hashes `shadow` se pueden crackear con "
                       "`hashcat -m 500 hashes.txt rockyou.txt` (MD5-crypt) "
                       "o `john --format=md5crypt`.")
             md.append("")
         if "ntlm" in buckets:
-            md.append("> 💡 Los hashes `ntlm` se pueden crackear con "
+            md.append(">  Los hashes `ntlm` se pueden crackear con "
                       "`hashcat -m 1000 hashes.txt rockyou.txt` o pasar "
                       "directamente con `pth-winexe` / `crackmapexec`.")
             md.append("")
@@ -165,7 +140,7 @@ def generate_report(state: dict[str, Any]) -> str:
         md.append("_No se obtuvieron credenciales._")
     md.append("")
 
-    # ============== Logs de exploits ==============
+    # Logs de exploits
     md.append("## Intentos de explotación registrados")
     md.append("")
     if os.path.isdir(_EXPLOIT_LOG_DIR):
@@ -186,7 +161,7 @@ def generate_report(state: dict[str, Any]) -> str:
         md.append("_Carpeta de logs no disponible._")
     md.append("")
 
-    # ============== Pie ==============
+    # Pie
     md.append("---")
     md.append("")
     md.append(

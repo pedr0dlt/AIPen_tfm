@@ -127,10 +127,24 @@ _SHADOW_HASH_RE = re.compile(
     re.MULTILINE,
 )
 
-# NTLM 
+# NTLM
 _NTLM_HASH_RE = re.compile(
     r"^([a-zA-Z0-9_.\-]{1,32}):\d+:([a-f0-9]{32}):([a-f0-9]{32}):::",
     re.MULTILINE | re.IGNORECASE,
+)
+
+# Hydra:  [22][ssh]
+_HYDRA_HIT_RE = re.compile(
+    r"\[(\d+)\]\[(\w+)\]\s+host:\s*(\S+)"
+    r".*?login:\s*(\S+)\s+password:\s*(\S+)",
+    re.IGNORECASE,
+)
+
+# Metasploit auxiliary brute success:
+_MSF_BRUTE_RE = re.compile(
+    r"\[[+*]\]\s+\S+:\d+\s+-\s+(?:SUCCESS|LOGIN\s+SUCCESSFUL)[:\s]+"
+    r"'([^':]+):([^']*)'",
+    re.IGNORECASE,
 )
 
 # True si hay shell remota
@@ -162,6 +176,16 @@ def _extract_credentials(output: str) -> list[str]:
         user, _lm, ntlm = m.group(1), m.group(2), m.group(3)
         found.append(f"ntlm: {user}:{ntlm}")
 
+    # Hydra hits — formato "login: USER  password: PASS" con host/port/svc
+    for m in _HYDRA_HIT_RE.finditer(output):
+        port, svc, host, user, pwd = m.group(1), m.group(2), m.group(3), m.group(4), m.group(5)
+        found.append(f"login: {svc}://{user}:{pwd}@{host}:{port}")
+
+    # MSF brute success — formato "Success: 'user:pass'"
+    for m in _MSF_BRUTE_RE.finditer(output):
+        user, pwd = m.group(1), m.group(2)
+        found.append(f"login: msf:{user}:{pwd}")
+
     seen: set[str] = set()
     unique: list[str] = []
     for f in found:
@@ -185,10 +209,6 @@ def tool_node(state: PentestState):
         comando = f'msfconsole -q -x "{stripped}"'
         print(f"[~] Auto-wrap: comando 'sessions ...' envuelto en msfconsole -q -x")
 
-    # B1 — Anti-duplicado por fase: si el LLM repite EXACTAMENTE un comando
-    # ya ejecutado en esta fase (post-auto-wrap), NO lo volvemos a lanzar.
-    # Devolvemos feedback sintético que fuerza al LLM a probar otra cosa
-    # o a decir FIN. `executed_commands` se resetea en cada transición de fase.
     cmd_norm = " ".join(comando.strip().lower().split())
     executed = state.get("executed_commands", []) or []
     if cmd_norm in executed:
@@ -207,10 +227,6 @@ def tool_node(state: PentestState):
             "next_tool_args": "",
         }
 
-    # F4 — Guard de fase: en post-explotación está PROHIBIDO re-explotar.
-    # El LLM tiende a volver a tirar `use exploit/...` en lugar de usar la
-    # sesión ya abierta. Esta guard es del mismo tipo que B1 (anti-dup) y
-    # F-V1 (validador msf): protege contra una clase de error específico.
     phase = state.get("current_phase", "")
     if phase == "post-exploitation" and "use exploit/" in comando.lower():
         last_sid = state.get("last_session_id", 0) or 1
@@ -297,8 +313,6 @@ def tool_node(state: PentestState):
             if len(items) > 2:
                 print(f"    · ... y {len(items) - 2} más de tipo '{tname}'")
 
-    # B1 — añadir el comando ejecutado al registro de la fase para detectar
-    # repeticiones futuras. `executed_commands` se resetea en cada transición.
     new_executed = list(executed) + [cmd_norm]
 
     updates = {

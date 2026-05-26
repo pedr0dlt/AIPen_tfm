@@ -2,11 +2,76 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from src.state import PentestState
 from src.catalog import lookup, render_msfconsole, applicable_ids
 
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _sanitize_shell_command(cmd: str) -> str:
+    cleaned = (cmd or "").strip()
+    if not cleaned:
+        return cleaned
+
+    # '}' final colgante (otro fallo típico cuando duplica JSON)
+    while cleaned.endswith("}"):
+        cleaned = cleaned[:-1].rstrip()
+
+    try:
+        tokens = shlex.split(cleaned)
+        # Caso especial: todo entrecomillado → 1 token con el comando entero.
+        if (
+            len(tokens) == 1
+            and len(cleaned) >= 2
+            and cleaned[0] in ("'", '"')
+            and cleaned[-1] == cleaned[0]
+        ):
+            return cleaned[1:-1].strip()
+        return cleaned  # bien formado, no tocamos
+    except ValueError:
+        pass  # comilla sin cerrar
+
+    # Hasta 3 capas
+    original = cleaned
+    for _ in range(3):
+        # comilla solo al principio
+        if cleaned and cleaned[0] in ("'", '"'):
+            test = cleaned[1:].strip()
+            try:
+                shlex.split(test)
+                print(f"[~] parser: pelada comilla inicial → {test[:90]}")
+                return test
+            except ValueError:
+                pass
+        # comilla solo al final
+        if cleaned and cleaned[-1] in ("'", '"'):
+            test = cleaned[:-1].strip()
+            try:
+                shlex.split(test)
+                print(f"[~] parser: pelada comilla final → {test[:90]}")
+                return test
+            except ValueError:
+                pass
+        # comillas en ambos extremos
+        if (
+            len(cleaned) >= 2
+            and cleaned[0] in ("'", '"')
+            and cleaned[-1] in ("'", '"')
+        ):
+            cleaned = cleaned[1:-1].strip()
+            try:
+                shlex.split(cleaned)
+                print(f"[~] parser: peladas comillas envolventes → {cleaned[:90]}")
+                return cleaned
+            except ValueError:
+                continue
+        break
+
+    if cleaned != original:
+        print(f"[!] parser: comando sigue mal formado tras sanear: {cleaned[:90]}")
+    return cleaned
 
 
 def _try_parse_json(text: str) -> dict | None:
@@ -57,8 +122,6 @@ def parser_node(state: PentestState):
             return {
                 "next_tool": "retry",
                 "next_tool_args": "",
-                # Cuenta como format_retry para evitar bucles infinitos de errores
-                # semánticos. Se resetea en reset_retries (antes de cada tool).
                 "format_retries": state.get("format_retries", 0) + 1,
                 "messages": [{
                     "role": "user",
@@ -68,17 +131,60 @@ def parser_node(state: PentestState):
                     )
                 }]
             }
-        print(f"[*] Acción shell: {cmd[:120]}")
+        sanitized = _sanitize_shell_command(cmd)
+        if sanitized != cmd:
+            print(f"[*] Acción shell (saneada): {sanitized[:120]}")
+        else:
+            print(f"[*] Acción shell: {cmd[:120]}")
         return {
             "next_tool": "executor",
-            "next_tool_args": cmd,
+            "next_tool_args": sanitized,
         }
 
     if action == "exploit":
+        phase = state.get("current_phase", "")
+        if phase == "post-exploitation":
+            exploit_id = (parsed.get("exploit_id") or "").strip()
+            creds = state.get("acquired_credentials", []) or []
+            last_sid = state.get("last_session_id", 0) or 0
+            if last_sid:
+                hint = (
+                    f"Tienes sesión Meterpreter id={last_sid} en msfrpcd. "
+                    f"Usa: msfconsole -q -x \"sessions -i {last_sid} -c "
+                    f"'hashdump'\""
+                )
+            elif creds:
+                hint = (
+                    f"Tienes {len(creds)} credenciales válidas en estado. "
+                    f"Usa sshpass+ssh, p.ej.: "
+                    f'{{"action":"shell","command":"sshpass -pPASS ssh -o '
+                    f"StrictHostKeyChecking=no USER@{state.get('target_ip', '')} "
+                    f'sudo -l"}}'
+                )
+            else:
+                hint = (
+                    "No tienes creds ni sesión. Usa `action:shell` con un "
+                    "comando que ya hayas validado en explotación."
+                )
+            print(f"[!] action='exploit' bloqueado en post-exploitation "
+                  f"(intentó '{exploit_id}')")
+            return {
+                "next_tool": "retry",
+                "next_tool_args": "",
+                "format_retries": state.get("format_retries", 0) + 1,
+                "messages": [{
+                    "role": "user",
+                    "content": (
+                        f"[SISTEMA] En POST-EXPLOTACIÓN está PROHIBIDO "
+                        f"`action:exploit`. El catálogo MSF no se usa aquí. "
+                        f"{hint}"
+                    )
+                }]
+            }
+
         exploit_id = (parsed.get("exploit_id") or "").strip()
         entry = lookup(exploit_id)
         if entry is None:
-            # exploit_id no existe en el catálogo → feedback sintético al LLM
             valid = applicable_ids(
                 state.get("discovered_ports", []),
                 state.get("os_type", "unknown"),

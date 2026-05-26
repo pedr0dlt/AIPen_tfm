@@ -28,3 +28,6 @@ class PentestState(TypedDict):
     executed_commands: List[str]
 
     last_session_id: int
+
+    interactive_mode: bool
+    human_decision: str

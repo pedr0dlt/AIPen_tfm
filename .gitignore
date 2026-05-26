@@ -24,3 +24,7 @@ data/logs/*
 data/reports/*
 !data/logs/.gitkeep
 !data/reports/.gitkeep
+
+# Imágenes de targets descargadas (Dockerlabs, etc.) — no commitear binarios
+data/targets/*.tar
+!data/targets/.gitkeep

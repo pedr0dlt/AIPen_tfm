@@ -4,6 +4,7 @@ from src.nodes.llm_node import llm_node
 from src.nodes.parser_node import parser_node
 from src.nodes.tool_node import tool_node
 from src.nodes.phase_node import phase_transition_node
+from src.nodes.human_node import human_approval_node
 
 MAX_FORMAT_RETRIES = 3
 
@@ -17,16 +18,18 @@ def route_next_step(state: PentestState):
         return END
 
     if args.upper() == "FIN":
+        if state.get("interactive_mode", False):
+            return "human_approval"
         return "phase_transition"
 
     if next_tool == "executor":
+        if state.get("interactive_mode", False):
+            return "human_approval"
         return "tool"
 
-    # Retry semántico (acción inválida, exploit_id desconocido, etc.).
-    # El parser ya incrementó format_retries. Si se acumulan demasiados sin
-    # un tool exitoso de por medio (que los resetearía), abortamos para
-    # evitar bucles tipo "{'action':'hashdump'}" repetido.
     if next_tool == "retry":
+        if state.get("interactive_mode", False):
+            return "human_approval"
         retries = state.get("format_retries", 0)
         if retries >= MAX_FORMAT_RETRIES:
             print(f"[!] Límite de {MAX_FORMAT_RETRIES} retries semánticos alcanzado. Abortando.")
@@ -40,10 +43,12 @@ def route_next_step(state: PentestState):
 
     return "enforce_format"
 
-# Avance si en recon hay puertos o si en exploitation hay compromised
 def route_after_tool(state: PentestState):
     phase = state.get("current_phase", "recon")
     ports = state.get("discovered_ports", []) or []
+
+    if state.get("interactive_mode", False):
+        return "llm"
 
     if phase == "recon" and len(ports) > 0:
         print(f"\n[*] Auto-avance: {len(ports)} puertos detectados → EXPLOTACIÓN")
@@ -60,6 +65,28 @@ def route_after_phase(state: PentestState):
     if state.get("current_phase") == "done":
         print("[*] Flujo terminado: no se llama más al LLM.\n")
         return END
+    return "llm"
+
+
+def route_after_human(state: PentestState):
+    decision = state.get("human_decision", "") or ""
+
+    if decision == "quit":
+        print("[*] quit del operador → termina el run.")
+        return END
+    if decision == "advance":
+        print("[*] /next del operador → avance de fase manual.")
+        return "phase_transition"
+    if decision in ("execute", "auto"):
+        next_tool = state.get("next_tool", "") or ""
+        args = (state.get("next_tool_args", "") or "").upper()
+        if args == "FIN":
+            return "phase_transition"
+        if next_tool != "executor":
+            return "llm"
+        return "tool"
+    if decision in ("skip", "inject"):
+        return "llm"
     return "llm"
 
 
@@ -96,6 +123,7 @@ def build_graph():
     workflow.add_node("tool", tool_node)
     workflow.add_node("reset_retries", reset_retries)
     workflow.add_node("phase_transition", phase_transition_node)
+    workflow.add_node("human_approval", human_approval_node)
 
     workflow.set_entry_point("llm")
 
@@ -106,9 +134,21 @@ def build_graph():
         route_next_step,
         {
             "tool": "reset_retries",
+            "human_approval": "human_approval",
             "llm": "llm",
             "phase_transition": "phase_transition",
             "enforce_format": "enforce_format",
+            END: END,
+        }
+    )
+
+    workflow.add_conditional_edges(
+        "human_approval",
+        route_after_human,
+        {
+            "tool": "reset_retries",
+            "llm": "llm",
+            "phase_transition": "phase_transition",
             END: END,
         }
     )

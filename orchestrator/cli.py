@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import requests
 from dotenv import load_dotenv
@@ -6,6 +8,7 @@ from src.agent import build_graph
 from src.nodes.llm_node import prewarm_ollama
 from src.catalog import load_catalog
 from src.report import generate_report
+from src.cli.renderer import banner, help_block
 
 load_dotenv()
 
@@ -31,9 +34,10 @@ def _get_lhost(target: str) -> str:
 
 def main():
     target_ip = os.getenv("TARGET_IP", "127.0.0.1")
-    print("========================================")
-    print(f" AIPen — Objetivo: {target_ip}")
-    print("========================================")
+
+    print(banner())
+    print(f"  Objetivo: {target_ip}")
+    print(help_block())
 
     # Pre-carga porque sino se tira 5 minutos sin arrancar
     prewarm_ollama()
@@ -72,20 +76,23 @@ def main():
         "commands_in_phase": 0,
         "executed_commands": [],
         "last_session_id": 0,
+        # F7
+        "interactive_mode": True,
+        "human_decision": "",
     }
 
     agent = build_graph()
 
-    print("\n[+] Arrancando ciclo ReAct LangGraph (F1: YAML + JSON)...")
+    print("\n[+] Arrancando ciclo ReAct LangGraph en modo GUIADO (F7)...")
     final_state = dict(initial_state)
     try:
-        for chunk in agent.stream(initial_state, {"recursion_limit": 150}, stream_mode="values"):
+        for chunk in agent.stream(initial_state, {"recursion_limit": 300}, stream_mode="values"):
             final_state = chunk
     except Exception as e:
         print(f"\n[!] Ejecución interrumpida: {e}")
 
     print("\n+============================================================+")
-    print("|                    RESUMEN FINAL                           |")
+    print("|                    RESUMEN FINAL (CLI)                     |")
     print("+============================================================+")
     print(f"| Objetivo         : {str(final_state.get('target_ip', '?')):<40} |")
     print(f"| OS detectado     : {str(final_state.get('os_type', '?')):<40} |")
@@ -107,13 +114,12 @@ def main():
     print(f"| ¿Comprometido?   : {str(final_state.get('is_compromised', False)):<40} |")
     print("+============================================================+")
 
-    # Reporte
     report_path = generate_report(final_state)
     if report_path:
         print(f"\n[+] Informe generado: {report_path}")
     else:
         print("\n[!] No se pudo generar el informe.")
-    print("\n[+] Fin de la ejecución.")
+    print("\n[+] Fin de la ejecución (modo CLI).")
 
 
 if __name__ == "__main__":

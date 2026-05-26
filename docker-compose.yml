@@ -4,8 +4,13 @@ networks:
   backend:
     # orchestrator <-> ollama <-> executor
   lab:
-    # executor <-> metasploitable
+    # executor <-> target (metasploitable | vacaciones | ...)
     internal: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.28.0.0/24
+          gateway: 172.28.0.1
 
 services:
   ollama:
@@ -62,6 +67,11 @@ services:
       - MSF_RPC_PORT=55553
       - MSF_RPC_USER=msf
       - MSF_RPC_PASS=msf123
+      # TARGET_IP se deriva automáticamente del perfil activo:
+      #   COMPOSE_PROFILES=metasploitable -> TARGET_IP=metasploitable (DNS lab -> 172.28.0.10)
+      #   COMPOSE_PROFILES=vacaciones     -> TARGET_IP=vacaciones     (DNS lab -> 172.28.0.11)
+      #- TARGET_IP=${COMPOSE_PROFILES:-metasploitable}
+      - TARGET_IP=${COMPOSE_PROFILES:-vacaciones}
     env_file:
       - .env
     volumes:
@@ -78,10 +88,22 @@ services:
     image: tleemcjr/metasploitable2:latest
     container_name: tfm_metasploitable
     hostname: metasploitable
+    profiles: ["metasploitable"]
     networks:
-      - lab
-    privileged: true  
-    tty: true         
+      lab:
+        ipv4_address: 172.28.0.10
+    privileged: true
+    tty: true
+    restart: unless-stopped
+
+  vacaciones:
+    image: vacaciones                # cargada con scripts/load_vacaciones.sh (docker load -i)
+    container_name: tfm_vacaciones
+    hostname: vacaciones
+    profiles: ["vacaciones"]
+    networks:
+      lab:
+        ipv4_address: 172.28.0.11
     restart: unless-stopped
 
 volumes:
